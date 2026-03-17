@@ -52,16 +52,45 @@ class _KiblatPageState extends State<KiblatPage> {
     _checkPermissions();
   }
 
+  Future<void> _refreshData() async {
+    await _checkPermissions();
+  }
+
   Future<void> _checkPermissions() async {
-    final status = await Permission.locationWhenInUse.request();
+    setState(() {
+      _locationStatus = "Mengecek sensor...";
+    });
+
+    bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
+    if (!serviceEnabled) {
+      setState(() {
+        _locationStatus = "GPS belum dinyalakan";
+        _hasPermissions = false;
+      });
+      return; 
+    }
+
+    PermissionStatus status = await Permission.locationWhenInUse.status;
+    if (status.isDenied) {
+      status = await Permission.locationWhenInUse.request();
+    }
+
     if (status.isGranted) {
       setState(() {
         _hasPermissions = true;
+        _locationStatus = "Mencari kordinat...";
       });
-      _calculateQiblaData();
+      await _calculateQiblaData();
+    } else if (status.isPermanentlyDenied) {
+      setState(() {
+        _locationStatus = "Izin ditolak permanen. Buka setting HP.";
+        _hasPermissions = false;
+      });
+      openAppSettings();
     } else {
       setState(() {
         _locationStatus = "Izin lokasi diperlukan";
+        _hasPermissions = false;
       });
     }
   }
@@ -117,116 +146,145 @@ class _KiblatPageState extends State<KiblatPage> {
             begin: Alignment.topCenter,
             end: Alignment.bottomCenter,
             colors: [
-              Color(0xFF0D47A1), // Biru Tua
-              Color(0xFF000000), // Hitam
+              Color(0xFF0D47A1), 
+              Color(0xFF000000),
             ],
           ),
         ),
         child: SafeArea(
-          child: !_hasPermissions
-              ? Center(
-                  child: ElevatedButton(
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.amber,
-                      foregroundColor: Colors.black,
-                    ),
-                    onPressed: _checkPermissions,
-                    child: const Text("Izinkan Akses Lokasi"),
-                  ),
-                )
-              : Column(
-                  children: [
-                    const SizedBox(height: 20),
-                    _buildHeader(),
-                    
-                    Expanded(
-                      child: StreamBuilder<CompassEvent>(
-                        stream: FlutterCompass.events,
-                        builder: (context, snapshot) {
-                          if (snapshot.hasError) return const Text('Error Kompas');
-                          if (snapshot.connectionState == ConnectionState.waiting) {
-                            return const Center(child: CircularProgressIndicator(color: Colors.amber));
-                          }
-
-                          double? direction = snapshot.data?.heading;
-                          if (direction == null) return const Text("No Sensor");
-                          
-                          if (direction - _lastDirection > 180) {
-                            _lastDirection += 360;
-                          } else if (direction - _lastDirection < -180) {
-                            _lastDirection -= 360;
-                          }
-                          _lastDirection = direction;
-                          
-                          double qiblaAngle = (_qiblaDirection ?? 0) - _lastDirection;
-                          
-                          double compassTurns = -1 * (_lastDirection / 360);
-                          double qiblaTurns = qiblaAngle / 360;
-
-                          return Stack(
-                            alignment: Alignment.center,
+          child: RefreshIndicator(
+            onRefresh: _refreshData,
+            color: Colors.amber,
+            child: !_hasPermissions
+                ? CustomScrollView(
+                    physics: const AlwaysScrollableScrollPhysics(),
+                    slivers: [
+                      SliverFillRemaining(
+                        hasScrollBody: false,
+                        child: Center(
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
                             children: [
-                         
-                              AnimatedRotation(
-                                turns: compassTurns,
-                                duration: const Duration(milliseconds: 400), // Durasi halusinasi gerakan
-                                curve: Curves.easeOut,
-                                child: CustomPaint(
-                                  size: const Size(300, 300),
-                                  painter: CompassDialPainter(),
-                                ),
+                              Text(
+                                _locationStatus,
+                                style: const TextStyle(color: Colors.white70, fontSize: 16),
                               ),
-
-                              AnimatedRotation(
-                                turns: qiblaTurns,
-                                duration: const Duration(milliseconds: 400),
-                                curve: Curves.easeOut,
-                                child: const Icon(
-                                  Icons.navigation,
-                                  size: 60,
-                                  color: Color(0xFFFFD700),
-                                  shadows: [
-                                    Shadow(color: Colors.black, blurRadius: 10)
-                                  ],
+                              const SizedBox(height: 20),
+                              ElevatedButton(
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: Colors.amber,
+                                  foregroundColor: Colors.black,
                                 ),
-                              ),
-
-                              Container(
-                                width: 10,
-                                height: 10,
-                                decoration: BoxDecoration(
-                                  color: Colors.red,
-                                  shape: BoxShape.circle,
-                                  border: Border.all(color: Colors.white, width: 2),
-                                ),
-                              ),
-                              
-                              Positioned(
-                                top: 40,
-                                child: Container(
-                                  width: 4,
-                                  height: 20,
-                                  decoration: BoxDecoration(
-                                    color: Colors.redAccent,
-                                    borderRadius: BorderRadius.circular(2),
-                                  ),
-                                ),
+                                onPressed: _checkPermissions,
+                                child: const Text("Cek Lokasi / Izin"),
                               ),
                             ],
-                          );
-                        },
+                          ),
+                        ),
                       ),
-                    ),
+                    ],
+                  )
+                : CustomScrollView(
+                    physics: const AlwaysScrollableScrollPhysics(),
+                    slivers: [
+                      SliverFillRemaining(
+                        hasScrollBody: false,
+                        child: Column(
+                          children: [
+                            const SizedBox(height: 20),
+                            _buildHeader(),
+                            
+                            Expanded(
+                              child: StreamBuilder<CompassEvent>(
+                                stream: FlutterCompass.events,
+                                builder: (context, snapshot) {
+                                  if (snapshot.hasError) return const Center(child: Text('Error Kompas', style: TextStyle(color: Colors.white)));
+                                  if (snapshot.connectionState == ConnectionState.waiting) {
+                                    return const Center(child: CircularProgressIndicator(color: Colors.amber));
+                                  }
 
-                    _buildFooterInfo(),
-                    const SizedBox(height: 30),
-                  ],
-                ),
+                                  double? direction = snapshot.data?.heading;
+                                  if (direction == null) return const Center(child: Text("Sensor kompas tidak ditemukan", style: TextStyle(color: Colors.white)));
+                                  
+                                  if (direction - _lastDirection > 180) {
+                                    _lastDirection += 360;
+                                  } else if (direction - _lastDirection < -180) {
+                                    _lastDirection -= 360;
+                                  }
+                                  _lastDirection = direction;
+                                  
+                                  double qiblaAngle = (_qiblaDirection ?? 0) - _lastDirection;
+                                  
+                                  double compassTurns = -1 * (_lastDirection / 360);
+                                  double qiblaTurns = qiblaAngle / 360;
+
+                                  return Stack(
+                                    alignment: Alignment.center,
+                                    children: [
+                                      AnimatedRotation(
+                                        turns: compassTurns,
+                                        duration: const Duration(milliseconds: 400),
+                                        curve: Curves.easeOut,
+                                        child: CustomPaint(
+                                          size: const Size(300, 300),
+                                          painter: CompassDialPainter(),
+                                        ),
+                                      ),
+
+                                      AnimatedRotation(
+                                        turns: qiblaTurns,
+                                        duration: const Duration(milliseconds: 400),
+                                        curve: Curves.easeOut,
+                                        child: const Icon(
+                                          Icons.navigation,
+                                          size: 60,
+                                          color: Color(0xFFFFD700),
+                                          shadows: [
+                                            Shadow(color: Colors.black, blurRadius: 10)
+                                          ],
+                                        ),
+                                      ),
+
+                                      Container(
+                                        width: 10,
+                                        height: 10,
+                                        decoration: BoxDecoration(
+                                          color: Colors.red,
+                                          shape: BoxShape.circle,
+                                          border: Border.all(color: Colors.white, width: 2),
+                                        ),
+                                      ),
+                                      
+                                      Positioned(
+                                        top: 40,
+                                        child: Container(
+                                          width: 4,
+                                          height: 20,
+                                          decoration: BoxDecoration(
+                                            color: Colors.redAccent,
+                                            borderRadius: BorderRadius.circular(2),
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  );
+                                },
+                              ),
+                            ),
+
+                            _buildFooterInfo(),
+                            const SizedBox(height: 30),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+          ),
         ),
       ),
     );
   }
-  //mwehehe
+
   Widget _buildHeader() {
     return Column(
       children: [
