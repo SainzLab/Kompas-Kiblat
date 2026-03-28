@@ -5,7 +5,9 @@ import 'package:flutter_compass/flutter_compass.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:vector_math/vector_math.dart' show radians;
+import 'package:geocoding/geocoding.dart'; 
 import 'kalender_page.dart';
+import 'tasbih_page.dart';
 
 void main() {
   runApp(const MyApp());
@@ -29,14 +31,37 @@ class MyApp extends StatelessWidget {
   }
 }
 
-class KiblatPage extends StatefulWidget {
+class KiblatPage extends StatelessWidget {
   const KiblatPage({super.key});
 
   @override
-  State<KiblatPage> createState() => _KiblatPageState();
+  Widget build(BuildContext context) {
+    return Scaffold(
+      body: Container(
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [
+              Color(0xFF0D47A1), 
+              Color(0xFF000000),
+            ],
+          ),
+        ),
+        child: const SafeArea(child: KiblatBody()),
+      ),
+    );
+  }
 }
 
-class _KiblatPageState extends State<KiblatPage> {
+class KiblatBody extends StatefulWidget {
+  const KiblatBody({super.key});
+
+  @override
+  State<KiblatBody> createState() => _KiblatBodyState();
+}
+
+class _KiblatBodyState extends State<KiblatBody> {
   bool _hasPermissions = false;
   double? _qiblaDirection;
   String _locationStatus = "Menunggu lokasi...";
@@ -98,21 +123,36 @@ class _KiblatPageState extends State<KiblatPage> {
 
   Future<void> _calculateQiblaData() async {
     try {
-      Position position = await Geolocator.getCurrentPosition(
-          desiredAccuracy: LocationAccuracy.high);
+      Position position = await Geolocator.getCurrentPosition(desiredAccuracy: LocationAccuracy.high);
 
       double lat = position.latitude;
       double lng = position.longitude;
 
       double qibla = _getBearing(lat, lng, _kaabaLat, _kaabaLng);
-      double distanceInMeters = Geolocator.distanceBetween(
-        lat, lng, _kaabaLat, _kaabaLng
-      );
+      double distanceInMeters = Geolocator.distanceBetween(lat, lng, _kaabaLat, _kaabaLng);
+
+      String namaKotaBaru = "Lokasi Terkunci"; 
+      try {
+        List<Placemark> placemarks = await placemarkFromCoordinates(lat, lng);
+        if (placemarks.isNotEmpty) {
+          Placemark place = placemarks[0];
+          String? kota = place.subAdministrativeArea; 
+          if (kota == null || kota.isEmpty) {
+            kota = place.locality; 
+          }
+          if (kota != null) {
+            kota = kota.replaceAll("Kabupaten ", "Kab. "); 
+            namaKotaBaru = kota; 
+          }
+        }
+      } catch (e) {
+        debugPrint("Gagal Reverse Geocoding: $e");
+      }
 
       setState(() {
         _qiblaDirection = qibla;
         _distanceToKaaba = distanceInMeters / 1000;
-        _locationStatus = "Lokasi Terkunci";
+        _locationStatus = namaKotaBaru; 
       });
     } catch (e) {
       setState(() {
@@ -140,222 +180,263 @@ class _KiblatPageState extends State<KiblatPage> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      body: GestureDetector(
-        // Sensitivitas usapan diperhalus agar disentuh dari tengah layar pun gampang pindah
-        onHorizontalDragEnd: (details) {
-          if (details.primaryVelocity! < -250) { 
-            Navigator.push(
-              context,
-              PageRouteBuilder(
-                pageBuilder: (context, animation, secondaryAnimation) => const KalenderPage(),
-                transitionsBuilder: (context, animation, secondaryAnimation, child) {
-                  const begin = Offset(1.0, 0.0);
-                  const end = Offset.zero;
-                  const curve = Curves.easeOutCubic;
-                  var tween = Tween(begin: begin, end: end).chain(CurveTween(curve: curve));
-                  return SlideTransition(position: animation.drive(tween), child: child);
-                },
-              ),
-            );
-          }
-        },
-        child: Stack(
-          children: [
-            // Konten utama Kompas
-            Container(
-              decoration: const BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
-                  colors: [
-                    Color(0xFF0D47A1), 
-                    Color(0xFF000000),
-                  ],
-                ),
-              ),
-              child: SafeArea(
-                child: RefreshIndicator(
-                  onRefresh: _refreshData,
-                  color: Colors.amber,
-                  child: !_hasPermissions
-                      ? CustomScrollView(
-                          physics: const AlwaysScrollableScrollPhysics(),
-                          slivers: [
-                            SliverFillRemaining(
-                              hasScrollBody: false,
-                              child: Center(
-                                child: Column(
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  children: [
-                                    Text(
-                                      _locationStatus,
-                                      style: const TextStyle(color: Colors.white70, fontSize: 16),
-                                    ),
-                                    const SizedBox(height: 20),
-                                    ElevatedButton(
-                                      style: ElevatedButton.styleFrom(
-                                        backgroundColor: Colors.amber,
-                                        foregroundColor: Colors.black,
-                                      ),
-                                      onPressed: _checkPermissions,
-                                      child: const Text("Cek Lokasi / Izin"),
-                                    ),
-                                  ],
+    return GestureDetector(
+      onHorizontalDragEnd: (details) {
+        if (details.primaryVelocity! < -250) { 
+          Navigator.push(
+            context,
+            PageRouteBuilder(
+              pageBuilder: (context, animation, secondaryAnimation) => const KalenderPage(),
+              transitionsBuilder: (context, animation, secondaryAnimation, child) {
+                const begin = Offset(1.0, 0.0); 
+                const end = Offset.zero;
+                const curve = Curves.easeOutCubic;
+                var tween = Tween(begin: begin, end: end).chain(CurveTween(curve: curve));
+                return SlideTransition(position: animation.drive(tween), child: child);
+              },
+            ),
+          );
+        }
+        else if (details.primaryVelocity! > 250) {
+          Navigator.push(
+            context,
+            PageRouteBuilder(
+              pageBuilder: (context, animation, secondaryAnimation) => const TasbihPage(),
+              transitionsBuilder: (context, animation, secondaryAnimation, child) {
+                const begin = Offset(-1.0, 0.0); 
+                const end = Offset.zero;
+                const curve = Curves.easeOutCubic;
+                var tween = Tween(begin: begin, end: end).chain(CurveTween(curve: curve));
+                return SlideTransition(position: animation.drive(tween), child: child);
+              },
+            ),
+          );
+        }
+      },
+      child: Stack(
+        children: [
+          RefreshIndicator(
+            onRefresh: _refreshData,
+            color: Colors.amber,
+            child: !_hasPermissions
+                ? CustomScrollView(
+                    physics: const AlwaysScrollableScrollPhysics(),
+                    slivers: [
+                      SliverFillRemaining(
+                        hasScrollBody: false,
+                        child: Center(
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Text(
+                                _locationStatus,
+                                style: const TextStyle(color: Colors.white70, fontSize: 16),
+                              ),
+                              const SizedBox(height: 20),
+                              ElevatedButton(
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: Colors.amber,
+                                  foregroundColor: Colors.black,
                                 ),
+                                onPressed: _checkPermissions,
+                                child: const Text("Cek Lokasi / Izin"),
                               ),
-                            ),
-                          ],
-                        )
-                      : CustomScrollView(
-                          physics: const AlwaysScrollableScrollPhysics(),
-                          slivers: [
-                            SliverFillRemaining(
-                              hasScrollBody: false,
-                              child: Column(
-                                children: [
-                                  const SizedBox(height: 20),
-                                  _buildHeader(),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ],
+                  )
+                : CustomScrollView(
+                    physics: const AlwaysScrollableScrollPhysics(),
+                    slivers: [
+                      SliverFillRemaining(
+                        hasScrollBody: false,
+                        child: Column(
+                          children: [
+                            const SizedBox(height: 20),
+                            _buildHeader(),
+                            
+                            Expanded(
+                              child: StreamBuilder<CompassEvent>(
+                                stream: FlutterCompass.events,
+                                builder: (context, snapshot) {
+                                  if (snapshot.hasError) return const Center(child: Text('Error Kompas', style: TextStyle(color: Colors.white)));
+                                  if (snapshot.connectionState == ConnectionState.waiting) {
+                                    return const Center(child: CircularProgressIndicator(color: Colors.amber));
+                                  }
+
+                                  double? direction = snapshot.data?.heading;
+                                  if (direction == null) return const Center(child: Text("Sensor kompas tidak ditemukan", style: TextStyle(color: Colors.white)));
                                   
-                                  Expanded(
-                                    child: StreamBuilder<CompassEvent>(
-                                      stream: FlutterCompass.events,
-                                      builder: (context, snapshot) {
-                                        if (snapshot.hasError) return const Center(child: Text('Error Kompas', style: TextStyle(color: Colors.white)));
-                                        if (snapshot.connectionState == ConnectionState.waiting) {
-                                          return const Center(child: CircularProgressIndicator(color: Colors.amber));
-                                        }
+                                  if (direction - _lastDirection > 180) {
+                                    _lastDirection += 360;
+                                  } else if (direction - _lastDirection < -180) {
+                                    _lastDirection -= 360;
+                                  }
+                                  _lastDirection = direction;
+                                  
+                                  double qiblaAngle = (_qiblaDirection ?? 0) - _lastDirection;
+                                  
+                                  double compassTurns = -1 * (_lastDirection / 360);
+                                  double qiblaTurns = qiblaAngle / 360;
 
-                                        double? direction = snapshot.data?.heading;
-                                        if (direction == null) return const Center(child: Text("Sensor kompas tidak ditemukan", style: TextStyle(color: Colors.white)));
-                                        
-                                        if (direction - _lastDirection > 180) {
-                                          _lastDirection += 360;
-                                        } else if (direction - _lastDirection < -180) {
-                                          _lastDirection -= 360;
-                                        }
-                                        _lastDirection = direction;
-                                        
-                                        double qiblaAngle = (_qiblaDirection ?? 0) - _lastDirection;
-                                        
-                                        double compassTurns = -1 * (_lastDirection / 360);
-                                        double qiblaTurns = qiblaAngle / 360;
+                                  return Stack(
+                                    alignment: Alignment.center,
+                                    children: [
+                                      AnimatedRotation(
+                                        turns: compassTurns,
+                                        duration: const Duration(milliseconds: 400),
+                                        curve: Curves.easeOut,
+                                        child: CustomPaint(
+                                          size: const Size(300, 300),
+                                          painter: CompassDialPainter(),
+                                        ),
+                                      ),
 
-                                        return Stack(
-                                          alignment: Alignment.center,
-                                          children: [
-                                            AnimatedRotation(
-                                              turns: compassTurns,
-                                              duration: const Duration(milliseconds: 400),
-                                              curve: Curves.easeOut,
-                                              child: CustomPaint(
-                                                size: const Size(300, 300),
-                                                painter: CompassDialPainter(),
-                                              ),
-                                            ),
-
-                                            AnimatedRotation(
-                                              turns: qiblaTurns,
-                                              duration: const Duration(milliseconds: 400),
-                                              curve: Curves.easeOut,
-                                              child: const Icon(
-                                                Icons.navigation,
-                                                size: 60,
-                                                color: Color(0xFFFFD700),
-                                                shadows: [
-                                                  Shadow(color: Colors.black, blurRadius: 10)
-                                                ],
-                                              ),
-                                            ),
-
-                                            Container(
-                                              width: 10,
-                                              height: 10,
-                                              decoration: BoxDecoration(
-                                                color: Colors.red,
-                                                shape: BoxShape.circle,
-                                                border: Border.all(color: Colors.white, width: 2),
-                                              ),
-                                            ),
-                                            
-                                            Positioned(
-                                              top: 40,
-                                              child: Container(
-                                              width: 4,
-                                              height: 20,
-                                              decoration: BoxDecoration(
-                                                color: Colors.redAccent,
-                                                borderRadius: BorderRadius.circular(2),
-                                              ),
-                                              ),
-                                            ),
+                                      AnimatedRotation(
+                                        turns: qiblaTurns,
+                                        duration: const Duration(milliseconds: 400),
+                                        curve: Curves.easeOut,
+                                        child: const Icon(
+                                          Icons.navigation,
+                                          size: 60,
+                                          color: Color(0xFFFFD700),
+                                          shadows: [
+                                            Shadow(color: Colors.black, blurRadius: 10)
                                           ],
-                                        );
-                                      },
-                                    ),
-                                  ),
+                                        ),
+                                      ),
 
-                                  _buildFooterInfo(),
-                                  const SizedBox(height: 30),
-                                ],
+                                      Container(
+                                        width: 10,
+                                        height: 10,
+                                        decoration: BoxDecoration(
+                                          color: Colors.red,
+                                          shape: BoxShape.circle,
+                                          border: Border.all(color: Colors.white, width: 2),
+                                        ),
+                                      ),
+                                      
+                                      Positioned(
+                                        top: 40,
+                                        child: Container(
+                                        width: 4,
+                                        height: 20,
+                                        decoration: BoxDecoration(
+                                          color: Colors.redAccent,
+                                          borderRadius: BorderRadius.circular(2),
+                                        ),
+                                        ),
+                                      ),
+                                    ],
+                                  );
+                                },
                               ),
                             ),
+
+                            _buildFooterInfo(),
+                            const SizedBox(height: 30),
                           ],
                         ),
+                      ),
+                    ],
+                  ),
+          ),
+
+          if (_hasPermissions)
+            Align(
+              alignment: Alignment.centerRight,
+              child: Opacity(
+                opacity: 0.7,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 4),
+                  decoration: const BoxDecoration(
+                    color: Colors.black38,
+                    borderRadius: BorderRadius.only(
+                      topLeft: Radius.circular(12),
+                      bottomLeft: Radius.circular(12),
+                    ),
+                    border: Border(
+                      left: BorderSide(color: Colors.white12, width: 1),
+                      top: BorderSide(color: Colors.white12, width: 1),
+                      bottom: BorderSide(color: Colors.white12, width: 1),
+                    ),
+                  ),
+                  child: const Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.chevron_left, color: Colors.white54, size: 22),
+                      SizedBox(height: 4),
+                      RotatedBox(
+                        quarterTurns: 3, 
+                        child: Text(
+                          "KALENDER",
+                          style: TextStyle(
+                            color: Colors.white54, 
+                            fontSize: 9, 
+                            fontWeight: FontWeight.bold,
+                            letterSpacing: 2,
+                          ),
+                        ),
+                      ),
+                      SizedBox(height: 4),
+                    ],
+                  ),
                 ),
               ),
             ),
 
-            // Penanda visual swipe yang sudah diperkecil, vertikal, dan estetik
-            if (_hasPermissions)
-              Align(
-                alignment: Alignment.centerRight,
-                child: Opacity(
-                  opacity: 0.7, // Dibuat agak transparan
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 4),
-                    decoration: const BoxDecoration(
-                      color: Colors.black38,
-                      borderRadius: BorderRadius.only(
-                        topLeft: Radius.circular(12),
-                        bottomLeft: Radius.circular(12),
-                      ),
-                      border: Border(
-                        left: BorderSide(color: Colors.white12, width: 1),
-                        top: BorderSide(color: Colors.white12, width: 1),
-                        bottom: BorderSide(color: Colors.white12, width: 1),
-                      ),
+          if (_hasPermissions)
+            Align(
+              alignment: Alignment.centerLeft,
+              child: Opacity(
+                opacity: 0.7,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 4),
+                  decoration: const BoxDecoration(
+                    color: Colors.black38,
+                    borderRadius: BorderRadius.only(
+                      topRight: Radius.circular(12),
+                      bottomRight: Radius.circular(12),
                     ),
-                    child: const Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(Icons.chevron_left, color: Colors.white54, size: 22),
-                        SizedBox(height: 4),
-                        RotatedBox(
-                          quarterTurns: 3, // Teks diputar ke atas agar tidak memakan ruang kompas
-                          child: Text(
-                            "KALENDER",
-                            style: TextStyle(
-                              color: Colors.white54, 
-                              fontSize: 9, 
-                              fontWeight: FontWeight.bold,
-                              letterSpacing: 2,
-                            ),
+                    border: Border(
+                      right: BorderSide(color: Colors.white12, width: 1),
+                      top: BorderSide(color: Colors.white12, width: 1),
+                      bottom: BorderSide(color: Colors.white12, width: 1),
+                    ),
+                  ),
+                  child: const Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.chevron_right, color: Colors.white54, size: 22),
+                      SizedBox(height: 4),
+                      RotatedBox(
+                        quarterTurns: 1, 
+                        child: Text(
+                          "TASBIH",
+                          style: TextStyle(
+                            color: Colors.white54, 
+                            fontSize: 9, 
+                            fontWeight: FontWeight.bold,
+                            letterSpacing: 2,
                           ),
                         ),
-                        SizedBox(height: 4),
-                      ],
-                    ),
+                      ),
+                      SizedBox(height: 4),
+                    ],
                   ),
                 ),
               ),
-          ],
-        ),
+            ),
+        ],
       ),
     );
   }
 
   Widget _buildHeader() {
+    bool isLocationFixed = (_distanceToKaaba != null);
+
     return Column(
       children: [
         const Text(
@@ -369,23 +450,28 @@ class _KiblatPageState extends State<KiblatPage> {
         ),
         const SizedBox(height: 5),
         Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
           decoration: BoxDecoration(
-            color: Colors.white.withOpacity(0.1),
+            color: isLocationFixed ? const Color(0xFF152A50) : Colors.white.withOpacity(0.08),
             borderRadius: BorderRadius.circular(20),
+            border: isLocationFixed ? Border.all(color: Colors.white12) : null,
           ),
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
               Icon(
-                _locationStatus == "Lokasi Terkunci" ? Icons.gps_fixed : Icons.gps_not_fixed,
+                Icons.lock, 
                 size: 16,
-                color: _locationStatus == "Lokasi Terkunci" ? Colors.greenAccent : Colors.orange,
+                color: isLocationFixed ? const Color(0xFFFFD700) : Colors.orange, 
               ),
               const SizedBox(width: 8),
               Text(
                 _locationStatus,
-                style: const TextStyle(color: Colors.white70, fontSize: 14),
+                style: TextStyle(
+                  color: isLocationFixed ? Colors.white : Colors.white70, 
+                  fontSize: 14,
+                  fontWeight: isLocationFixed ? FontWeight.bold : FontWeight.normal,
+                ),
               ),
             ],
           ),

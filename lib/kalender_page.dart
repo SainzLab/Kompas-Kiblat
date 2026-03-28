@@ -13,18 +13,15 @@ class _KalenderPageState extends State<KalenderPage> {
   late DateTime _gregorianToday;
   late PageController _pageController;
 
-  // State baru untuk menyimpan tanggal yang sedang dipilih/diklik
   late DateTime _selectedDate;
   late HijriCalendar _selectedHijri;
 
-  // Kamus manual bulan Hijriah
   final List<String> _bulanHijriah = [
     '', 'Muharram', 'Safar', 'Rabiul Awal', 'Rabiul Akhir',
     'Jumadil Awal', 'Jumadil Akhir', 'Rajab', 'Sya\'ban',
     'Ramadhan', 'Syawal', 'Dzulqa\'dah', 'Dzulhijjah'
   ];
 
-  // Kamus manual hari dan bulan Masehi
   final List<String> _hariMasehi = [
     '', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu', 'Minggu'
   ];
@@ -39,7 +36,6 @@ class _KalenderPageState extends State<KalenderPage> {
     _gregorianToday = DateTime.now();
     _hijriToday = HijriCalendar.now();
     
-    // Saat pertama kali buka, set tanggal yang dipilih ke "hari ini"
     _selectedDate = _gregorianToday;
     _selectedHijri = _hijriToday;
 
@@ -53,7 +49,6 @@ class _KalenderPageState extends State<KalenderPage> {
     super.dispose();
   }
 
-  // Fungsi penentu ikon fase bulan
   String _getMoonPhaseIcon(int hijriDay) {
     if (hijriDay >= 1 && hijriDay <= 3) return '🌒';
     if (hijriDay >= 4 && hijriDay <= 7) return '🌓';
@@ -67,7 +62,6 @@ class _KalenderPageState extends State<KalenderPage> {
 
   @override
   Widget build(BuildContext context) {
-    // SEMUA INFORMASI DI ATAS SEKARANG MEMBACA _selectedDate & _selectedHijri
     String moonIcon = _getMoonPhaseIcon(_selectedHijri.hDay);
     String namaBulanHijriah = _bulanHijriah[_selectedHijri.hMonth];
     String namaHari = _hariMasehi[_selectedDate.weekday];
@@ -79,10 +73,8 @@ class _KalenderPageState extends State<KalenderPage> {
       appBar: AppBar(
         backgroundColor: Colors.transparent,
         elevation: 0,
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back_ios, color: Colors.white),
-          onPressed: () => Navigator.pop(context),
-        ),
+        automaticallyImplyLeading: false, 
+        centerTitle: true,
         title: const Text(
           'KALENDER & FASE BULAN',
           style: TextStyle(
@@ -92,14 +84,19 @@ class _KalenderPageState extends State<KalenderPage> {
             fontSize: 16,
           ),
         ),
-        centerTitle: true,
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.arrow_forward_ios, color: Colors.white),
+            onPressed: () => Navigator.pop(context),
+          ),
+          const SizedBox(width: 8),
+        ],
       ),
       body: SafeArea(
         child: Column(
           children: [
             const SizedBox(height: 10),
             
-            // --- BAGIAN ATAS (Otomatis berubah kalau tanggal diklik) ---
             Text(
               moonIcon,
               style: const TextStyle(fontSize: 100), 
@@ -134,7 +131,6 @@ class _KalenderPageState extends State<KalenderPage> {
             
             const SizedBox(height: 30),
 
-            // --- BAGIAN BAWAH: PAGEVIEW KALENDER ---
             Expanded(
               child: PageView.builder(
                 controller: _pageController,
@@ -239,29 +235,25 @@ class _KalenderPageState extends State<KalenderPage> {
                 int tanggalBerapa = index - (hariPertama - 2);
                 DateTime cellDate = DateTime(tahun, bulan, tanggalBerapa);
                 
-                // Cek apakah sel ini adalah tanggal yang dipilih user
                 bool isSelected = (cellDate.year == _selectedDate.year) && 
                                   (cellDate.month == _selectedDate.month) && 
                                   (cellDate.day == _selectedDate.day);
                                   
-                // Cek apakah sel ini adalah tanggal "hari ini" di dunia nyata
                 bool isToday = (cellDate.year == _gregorianToday.year) && 
                                (cellDate.month == _gregorianToday.month) && 
                                (cellDate.day == _gregorianToday.day);
 
                 return GestureDetector(
                   onTap: () {
-                    // Update state saat tanggal diklik
                     setState(() {
                       _selectedDate = cellDate;
-                      _selectedHijri = HijriCalendar.fromDate(_selectedDate); // Otomatis terkonversi!
+                      _selectedHijri = HijriCalendar.fromDate(_selectedDate); 
                     });
                   },
                   child: Container(
                     decoration: BoxDecoration(
                       color: isSelected ? const Color(0xFFFFD700) : Colors.transparent,
                       shape: BoxShape.circle,
-                      // Beri border emas untuk "hari ini" agar user tidak lupa, kecuali jika sedang dipilih
                       border: isToday && !isSelected 
                           ? Border.all(color: const Color(0xFFFFD700), width: 1.5) 
                           : null,
