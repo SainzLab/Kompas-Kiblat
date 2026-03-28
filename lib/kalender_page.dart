@@ -60,6 +60,20 @@ class _KalenderPageState extends State<KalenderPage> {
     return '🌑';
   }
 
+  String _getHariBesar(int hDay, int hMonth) {
+    if (hMonth == 1 && hDay == 1) return "Tahun Baru Islam";
+    if (hMonth == 1 && hDay == 10) return "Puasa Asyura";
+    if (hMonth == 3 && hDay == 12) return "Maulid Nabi Muhammad SAW";
+    if (hMonth == 7 && hDay == 27) return "Isra' Mi'raj";
+    if (hMonth == 9 && hDay == 1) return "Awal Ramadhan";
+    if (hMonth == 9 && hDay == 17) return "Nuzulul Qur'an";
+    if (hMonth == 10 && hDay == 1) return "Idul Fitri";
+    if (hMonth == 12 && hDay == 9) return "Puasa Arafah";
+    if (hMonth == 12 && hDay == 10) return "Idul Adha";
+    if (hMonth == 12 && (hDay >= 11 && hDay <= 13)) return "Hari Tasyrik";
+    return "";
+  }
+
   @override
   Widget build(BuildContext context) {
     String moonIcon = _getMoonPhaseIcon(_selectedHijri.hDay);
@@ -67,6 +81,7 @@ class _KalenderPageState extends State<KalenderPage> {
     String namaHari = _hariMasehi[_selectedDate.weekday];
     String namaBulanMasehi = _bulanMasehi[_selectedDate.month];
     String formattedMasehi = '$namaHari, ${_selectedDate.day} $namaBulanMasehi ${_selectedDate.year}';
+    String teksHariBesar = _getHariBesar(_selectedHijri.hDay, _selectedHijri.hMonth);
 
     return Scaffold(
       backgroundColor: const Color(0xFF0B1F42), 
@@ -112,6 +127,28 @@ class _KalenderPageState extends State<KalenderPage> {
               ),
               textAlign: TextAlign.center,
             ),
+            
+            if (teksHariBesar.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.only(top: 8.0),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: Colors.redAccent.withOpacity(0.2),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: Colors.redAccent.withOpacity(0.5)),
+                  ),
+                  child: Text(
+                    teksHariBesar,
+                    style: const TextStyle(
+                      color: Colors.redAccent,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 14,
+                    ),
+                  ),
+                ),
+              ),
+              
             const SizedBox(height: 10),
             
             Container(
@@ -235,6 +272,9 @@ class _KalenderPageState extends State<KalenderPage> {
                 int tanggalBerapa = index - (hariPertama - 2);
                 DateTime cellDate = DateTime(tahun, bulan, tanggalBerapa);
                 
+                HijriCalendar cellHijri = HijriCalendar.fromDate(cellDate);
+                bool hasEvent = _getHariBesar(cellHijri.hDay, cellHijri.hMonth).isNotEmpty;
+                
                 bool isSelected = (cellDate.year == _selectedDate.year) && 
                                   (cellDate.month == _selectedDate.month) && 
                                   (cellDate.day == _selectedDate.day);
@@ -247,7 +287,7 @@ class _KalenderPageState extends State<KalenderPage> {
                   onTap: () {
                     setState(() {
                       _selectedDate = cellDate;
-                      _selectedHijri = HijriCalendar.fromDate(_selectedDate); 
+                      _selectedHijri = cellHijri; 
                     });
                   },
                   child: Container(
@@ -258,15 +298,31 @@ class _KalenderPageState extends State<KalenderPage> {
                           ? Border.all(color: const Color(0xFFFFD700), width: 1.5) 
                           : null,
                     ),
-                    child: Center(
-                      child: Text(
-                        tanggalBerapa.toString(),
-                        style: TextStyle(
-                          color: isSelected ? Colors.black : Colors.white,
-                          fontWeight: isSelected || isToday ? FontWeight.bold : FontWeight.normal,
-                          fontSize: 14,
+                    
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Text(
+                          tanggalBerapa.toString(),
+                          style: TextStyle(
+                            color: isSelected ? Colors.black : Colors.white,
+                            fontWeight: isSelected || isToday ? FontWeight.bold : FontWeight.normal,
+                            fontSize: 14,
+                          ),
                         ),
-                      ),
+                        const SizedBox(height: 2),
+
+                        Container(
+                          width: 4,
+                          height: 4,
+                          decoration: BoxDecoration(
+                            color: hasEvent 
+                                ? (isSelected ? Colors.red : Colors.redAccent) 
+                                : Colors.transparent,
+                            shape: BoxShape.circle,
+                          ),
+                        ),
+                      ],
                     ),
                   ),
                 );
