@@ -6,6 +6,7 @@ import 'package:geolocator/geolocator.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:vector_math/vector_math.dart' show radians;
 import 'package:geocoding/geocoding.dart'; 
+import 'package:adhan/adhan.dart';
 import 'kalender_page.dart';
 import 'tasbih_page.dart';
 
@@ -71,6 +72,13 @@ class _KiblatBodyState extends State<KiblatBody> {
   final double _kaabaLng = 39.826206;
 
   double _lastDirection = 0;
+  
+  PrayerTimes? _prayerTimes;
+  
+  DateTime _selectedPrayerDate = DateTime.now();
+
+  final List<String> _hariMasehi = ['', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu', 'Minggu'];
+  final List<String> _bulanMasehi = ['', 'Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'];
 
   @override
   void initState() {
@@ -124,7 +132,6 @@ class _KiblatBodyState extends State<KiblatBody> {
   Future<void> _calculateQiblaData() async {
     try {
       Position position = await Geolocator.getCurrentPosition(desiredAccuracy: LocationAccuracy.high);
-
       double lat = position.latitude;
       double lng = position.longitude;
 
@@ -149,6 +156,8 @@ class _KiblatBodyState extends State<KiblatBody> {
         debugPrint("Gagal Reverse Geocoding: $e");
       }
 
+      _updatePrayerTimes(lat, lng, _selectedPrayerDate);
+
       setState(() {
         _qiblaDirection = qibla;
         _distanceToKaaba = distanceInMeters / 1000;
@@ -158,6 +167,34 @@ class _KiblatBodyState extends State<KiblatBody> {
       setState(() {
         _locationStatus = "Gagal mengambil lokasi";
       });
+    }
+  }
+
+  void _updatePrayerTimes(double lat, double lng, DateTime dateForPrayer) {
+    final coordinates = Coordinates(lat, lng);
+    final date = DateComponents.from(dateForPrayer);
+    final params = CalculationMethod.singapore.getParameters();
+
+    params.fajrAngle = 20.0;
+    params.ishaAngle = 18.0;
+    params.madhab = Madhab.shafi;
+
+    final prayerTimes = PrayerTimes(coordinates, date, params);
+    
+    setState(() {
+      _prayerTimes = prayerTimes; 
+      _selectedPrayerDate = dateForPrayer;
+    });
+  }
+
+  void _changePrayerDate(int daysToAdd) async {
+    DateTime newDate = _selectedPrayerDate.add(Duration(days: daysToAdd));
+    
+    try {
+      Position position = await Geolocator.getCurrentPosition(desiredAccuracy: LocationAccuracy.low);
+      _updatePrayerTimes(position.latitude, position.longitude, newDate);
+    } catch (e) {
+       debugPrint("Gagal update jadwal: $e");
     }
   }
 
@@ -178,8 +215,15 @@ class _KiblatBodyState extends State<KiblatBody> {
     return (bearingDegrees + 360) % 360;
   }
 
+  String _formatTime(DateTime time) {
+    final localTime = time.toLocal(); 
+    return "${localTime.hour.toString().padLeft(2, '0')}:${localTime.minute.toString().padLeft(2, '0')}";
+  }
+
   @override
   Widget build(BuildContext context) {
+    double screenHeight = MediaQuery.of(context).size.height;
+
     return GestureDetector(
       onHorizontalDragEnd: (details) {
         if (details.primaryVelocity! < -250) { 
@@ -250,96 +294,107 @@ class _KiblatBodyState extends State<KiblatBody> {
                 : CustomScrollView(
                     physics: const AlwaysScrollableScrollPhysics(),
                     slivers: [
-                      SliverFillRemaining(
-                        hasScrollBody: false,
+                      SliverToBoxAdapter(
+                        child: SizedBox(
+                          height: screenHeight * 0.82, 
+                          child: Column(
+                            children: [
+                              const SizedBox(height: 20),
+                              _buildHeader(),
+                              
+                              Expanded(
+                                child: StreamBuilder<CompassEvent>(
+                                  stream: FlutterCompass.events,
+                                  builder: (context, snapshot) {
+                                    if (snapshot.hasError) return const Center(child: Text('Error Kompas', style: TextStyle(color: Colors.white)));
+                                    if (snapshot.connectionState == ConnectionState.waiting) {
+                                      return const Center(child: CircularProgressIndicator(color: Colors.amber));
+                                    }
+
+                                    double? direction = snapshot.data?.heading;
+                                    if (direction == null) return const Center(child: Text("Sensor kompas tidak ditemukan", style: TextStyle(color: Colors.white)));
+                                    
+                                    if (direction - _lastDirection > 180) {
+                                      _lastDirection += 360;
+                                    } else if (direction - _lastDirection < -180) {
+                                      _lastDirection -= 360;
+                                    }
+                                    _lastDirection = direction;
+                                    
+                                    double qiblaAngle = (_qiblaDirection ?? 0) - _lastDirection;
+                                    
+                                    double compassTurns = -1 * (_lastDirection / 360);
+                                    double qiblaTurns = qiblaAngle / 360;
+
+                                    return Stack(
+                                      alignment: Alignment.center,
+                                      children: [
+                                        AnimatedRotation(
+                                          turns: compassTurns,
+                                          duration: const Duration(milliseconds: 400),
+                                          curve: Curves.easeOut,
+                                          child: CustomPaint(
+                                            size: const Size(300, 300),
+                                            painter: CompassDialPainter(),
+                                          ),
+                                        ),
+
+                                        AnimatedRotation(
+                                          turns: qiblaTurns,
+                                          duration: const Duration(milliseconds: 400),
+                                          curve: Curves.easeOut,
+                                          child: const Icon(
+                                            Icons.navigation,
+                                            size: 60,
+                                            color: Color(0xFFFFD700),
+                                            shadows: [
+                                              Shadow(color: Colors.black, blurRadius: 10)
+                                            ],
+                                          ),
+                                        ),
+
+                                        Container(
+                                          width: 10,
+                                          height: 10,
+                                          decoration: BoxDecoration(
+                                            color: Colors.red,
+                                            shape: BoxShape.circle,
+                                            border: Border.all(color: Colors.white, width: 2),
+                                          ),
+                                        ),
+                                        
+                                        Positioned(
+                                          top: 40,
+                                          child: Container(
+                                          width: 4,
+                                          height: 20,
+                                          decoration: BoxDecoration(
+                                            color: Colors.redAccent,
+                                            borderRadius: BorderRadius.circular(2),
+                                          ),
+                                          ),
+                                        ),
+                                      ],
+                                    );
+                                  },
+                                ),
+                              ),
+
+                              _buildFooterInfo(),
+                            ],
+                          ),
+                        ),
+                      ),
+                      
+                      SliverToBoxAdapter(
                         child: Column(
                           children: [
                             const SizedBox(height: 20),
-                            _buildHeader(),
-                            
-                            Expanded(
-                              child: StreamBuilder<CompassEvent>(
-                                stream: FlutterCompass.events,
-                                builder: (context, snapshot) {
-                                  if (snapshot.hasError) return const Center(child: Text('Error Kompas', style: TextStyle(color: Colors.white)));
-                                  if (snapshot.connectionState == ConnectionState.waiting) {
-                                    return const Center(child: CircularProgressIndicator(color: Colors.amber));
-                                  }
-
-                                  double? direction = snapshot.data?.heading;
-                                  if (direction == null) return const Center(child: Text("Sensor kompas tidak ditemukan", style: TextStyle(color: Colors.white)));
-                                  
-                                  if (direction - _lastDirection > 180) {
-                                    _lastDirection += 360;
-                                  } else if (direction - _lastDirection < -180) {
-                                    _lastDirection -= 360;
-                                  }
-                                  _lastDirection = direction;
-                                  
-                                  double qiblaAngle = (_qiblaDirection ?? 0) - _lastDirection;
-                                  
-                                  double compassTurns = -1 * (_lastDirection / 360);
-                                  double qiblaTurns = qiblaAngle / 360;
-
-                                  return Stack(
-                                    alignment: Alignment.center,
-                                    children: [
-                                      AnimatedRotation(
-                                        turns: compassTurns,
-                                        duration: const Duration(milliseconds: 400),
-                                        curve: Curves.easeOut,
-                                        child: CustomPaint(
-                                          size: const Size(300, 300),
-                                          painter: CompassDialPainter(),
-                                        ),
-                                      ),
-
-                                      AnimatedRotation(
-                                        turns: qiblaTurns,
-                                        duration: const Duration(milliseconds: 400),
-                                        curve: Curves.easeOut,
-                                        child: const Icon(
-                                          Icons.navigation,
-                                          size: 60,
-                                          color: Color(0xFFFFD700),
-                                          shadows: [
-                                            Shadow(color: Colors.black, blurRadius: 10)
-                                          ],
-                                        ),
-                                      ),
-
-                                      Container(
-                                        width: 10,
-                                        height: 10,
-                                        decoration: BoxDecoration(
-                                          color: Colors.red,
-                                          shape: BoxShape.circle,
-                                          border: Border.all(color: Colors.white, width: 2),
-                                        ),
-                                      ),
-                                      
-                                      Positioned(
-                                        top: 40,
-                                        child: Container(
-                                        width: 4,
-                                        height: 20,
-                                        decoration: BoxDecoration(
-                                          color: Colors.redAccent,
-                                          borderRadius: BorderRadius.circular(2),
-                                        ),
-                                        ),
-                                      ),
-                                    ],
-                                  );
-                                },
-                              ),
-                            ),
-
-                            _buildFooterInfo(),
-                            const SizedBox(height: 30),
+                            if (_prayerTimes != null) _buildJadwalSholatUI(),
+                            const SizedBox(height: 50),
                           ],
                         ),
-                      ),
+                      )
                     ],
                   ),
           ),
@@ -353,33 +408,15 @@ class _KiblatBodyState extends State<KiblatBody> {
                   padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 4),
                   decoration: const BoxDecoration(
                     color: Colors.black38,
-                    borderRadius: BorderRadius.only(
-                      topLeft: Radius.circular(12),
-                      bottomLeft: Radius.circular(12),
-                    ),
-                    border: Border(
-                      left: BorderSide(color: Colors.white12, width: 1),
-                      top: BorderSide(color: Colors.white12, width: 1),
-                      bottom: BorderSide(color: Colors.white12, width: 1),
-                    ),
+                    borderRadius: BorderRadius.only(topLeft: Radius.circular(12), bottomLeft: Radius.circular(12)),
+                    border: Border(left: BorderSide(color: Colors.white12, width: 1), top: BorderSide(color: Colors.white12, width: 1), bottom: BorderSide(color: Colors.white12, width: 1)),
                   ),
                   child: const Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       Icon(Icons.chevron_left, color: Colors.white54, size: 22),
                       SizedBox(height: 4),
-                      RotatedBox(
-                        quarterTurns: 3, 
-                        child: Text(
-                          "KALENDER",
-                          style: TextStyle(
-                            color: Colors.white54, 
-                            fontSize: 9, 
-                            fontWeight: FontWeight.bold,
-                            letterSpacing: 2,
-                          ),
-                        ),
-                      ),
+                      RotatedBox(quarterTurns: 3, child: Text("KALENDER", style: TextStyle(color: Colors.white54, fontSize: 9, fontWeight: FontWeight.bold, letterSpacing: 2))),
                       SizedBox(height: 4),
                     ],
                   ),
@@ -396,33 +433,15 @@ class _KiblatBodyState extends State<KiblatBody> {
                   padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 4),
                   decoration: const BoxDecoration(
                     color: Colors.black38,
-                    borderRadius: BorderRadius.only(
-                      topRight: Radius.circular(12),
-                      bottomRight: Radius.circular(12),
-                    ),
-                    border: Border(
-                      right: BorderSide(color: Colors.white12, width: 1),
-                      top: BorderSide(color: Colors.white12, width: 1),
-                      bottom: BorderSide(color: Colors.white12, width: 1),
-                    ),
+                    borderRadius: BorderRadius.only(topRight: Radius.circular(12), bottomRight: Radius.circular(12)),
+                    border: Border(right: BorderSide(color: Colors.white12, width: 1), top: BorderSide(color: Colors.white12, width: 1), bottom: BorderSide(color: Colors.white12, width: 1)),
                   ),
                   child: const Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       Icon(Icons.chevron_right, color: Colors.white54, size: 22),
                       SizedBox(height: 4),
-                      RotatedBox(
-                        quarterTurns: 1, 
-                        child: Text(
-                          "TASBIH",
-                          style: TextStyle(
-                            color: Colors.white54, 
-                            fontSize: 9, 
-                            fontWeight: FontWeight.bold,
-                            letterSpacing: 2,
-                          ),
-                        ),
-                      ),
+                      RotatedBox(quarterTurns: 1, child: Text("TASBIH", style: TextStyle(color: Colors.white54, fontSize: 9, fontWeight: FontWeight.bold, letterSpacing: 2))),
                       SizedBox(height: 4),
                     ],
                   ),
@@ -434,9 +453,112 @@ class _KiblatBodyState extends State<KiblatBody> {
     );
   }
 
+  Widget _buildJadwalSholatUI() {
+   
+    DateTime now = DateTime.now();
+    bool isToday = _selectedPrayerDate.year == now.year && 
+                   _selectedPrayerDate.month == now.month && 
+                   _selectedPrayerDate.day == now.day;
+
+    Prayer nextPrayer = isToday ? _prayerTimes!.nextPrayer() : Prayer.none;
+    
+    String namaHari = _hariMasehi[_selectedPrayerDate.weekday];
+    String namaBulan = _bulanMasehi[_selectedPrayerDate.month];
+    String headerTitle = isToday ? "JADWAL HARI INI" : "$namaHari, ${_selectedPrayerDate.day} $namaBulan ${_selectedPrayerDate.year}";
+
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 20),
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: Colors.white.withOpacity(0.05),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: Colors.white10),
+      ),
+      child: Column(
+        children: [
+          
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              IconButton(
+                icon: const Icon(Icons.chevron_left, color: Colors.white70),
+                onPressed: () => _changePrayerDate(-1),
+              ),
+              Text(
+                headerTitle,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                  letterSpacing: 1,
+                ),
+              ),
+              IconButton(
+                icon: const Icon(Icons.chevron_right, color: Colors.white70),
+                onPressed: () => _changePrayerDate(1), 
+              ),
+            ],
+          ),
+          
+          const SizedBox(height: 10),
+          
+          _prayerRow("Subuh", _prayerTimes!.fajr, nextPrayer == Prayer.fajr),
+          const Divider(color: Colors.white12, height: 1),
+          _prayerRow("Dzuhur", _prayerTimes!.dhuhr, nextPrayer == Prayer.dhuhr),
+          const Divider(color: Colors.white12, height: 1),
+          _prayerRow("Ashar", _prayerTimes!.asr, nextPrayer == Prayer.asr),
+          const Divider(color: Colors.white12, height: 1),
+          _prayerRow("Maghrib", _prayerTimes!.maghrib, nextPrayer == Prayer.maghrib),
+          const Divider(color: Colors.white12, height: 1),
+          _prayerRow("Isya", _prayerTimes!.isha, nextPrayer == Prayer.isha),
+        ],
+      ),
+    );
+  }
+
+  Widget _prayerRow(String name, DateTime time, bool isNext) {
+    return Container(
+      padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 8),
+      decoration: BoxDecoration(
+        color: isNext ? Colors.amber.withOpacity(0.15) : Colors.transparent,
+        borderRadius: BorderRadius.circular(8),
+        border: isNext ? Border.all(color: Colors.amber.withOpacity(0.5)) : null,
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Row(
+            children: [
+              if (isNext) 
+                const Padding(
+                  padding: EdgeInsets.only(right: 8.0),
+                  child: Icon(Icons.access_time_filled, color: Colors.amber, size: 18),
+                ),
+              Text(
+                name,
+                style: TextStyle(
+                  color: isNext ? Colors.amber : Colors.white70,
+                  fontSize: 16,
+                  fontWeight: isNext ? FontWeight.bold : FontWeight.w500,
+                ),
+              ),
+            ],
+          ),
+          Text(
+            _formatTime(time),
+            style: TextStyle(
+              color: isNext ? Colors.amber : Colors.white,
+              fontSize: 18,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildHeader() {
     bool isLocationFixed = (_distanceToKaaba != null);
-
     return Column(
       children: [
         const Text(
@@ -507,11 +629,7 @@ class _KiblatBodyState extends State<KiblatBody> {
         const SizedBox(height: 8),
         Text(
           value,
-          style: const TextStyle(
-            color: Colors.white,
-            fontSize: 18,
-            fontWeight: FontWeight.bold,
-          ),
+          style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
         ),
         Text(
           label,
@@ -528,27 +646,14 @@ class CompassDialPainter extends CustomPainter {
     final center = Offset(size.width / 2, size.height / 2);
     final radius = size.width / 2;
 
-    final paintCircle = Paint()
-      ..color = const Color(0xFF212121)
-      ..style = PaintingStyle.fill;
-    
-    final paintBorder = Paint()
-      ..color = Colors.amber.withOpacity(0.3)
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 4;
+    final paintCircle = Paint()..color = const Color(0xFF212121)..style = PaintingStyle.fill;
+    final paintBorder = Paint()..color = Colors.amber.withOpacity(0.3)..style = PaintingStyle.stroke..strokeWidth = 4;
 
     canvas.drawCircle(center, radius, paintCircle);
     canvas.drawCircle(center, radius, paintBorder);
 
-    final paintTick = Paint()
-      ..color = Colors.white38
-      ..strokeWidth = 2
-      ..strokeCap = StrokeCap.round;
-
-    final paintMainTick = Paint()
-      ..color = Colors.white
-      ..strokeWidth = 3
-      ..strokeCap = StrokeCap.round;
+    final paintTick = Paint()..color = Colors.white38..strokeWidth = 2..strokeCap = StrokeCap.round;
+    final paintMainTick = Paint()..color = Colors.white..strokeWidth = 3..strokeCap = StrokeCap.round;
 
     for (int i = 0; i < 360; i += 5) {
       double angle = (i - 90) * math.pi / 180;
@@ -576,18 +681,8 @@ class CompassDialPainter extends CustomPainter {
   void drawText(Canvas canvas, Offset center, double radius, String text, double angleDeg, Color color, bool isBold) {
     double angle = (angleDeg - 90) * math.pi / 180;
     
-    final textSpan = TextSpan(
-      text: text,
-      style: TextStyle(
-        color: color,
-        fontSize: isBold ? 24 : 18,
-        fontWeight: isBold ? FontWeight.bold : FontWeight.normal,
-      ),
-    );
-    final textPainter = TextPainter(
-      text: textSpan,
-      textDirection: TextDirection.ltr,
-    );
+    final textSpan = TextSpan(text: text, style: TextStyle(color: color, fontSize: isBold ? 24 : 18, fontWeight: isBold ? FontWeight.bold : FontWeight.normal));
+    final textPainter = TextPainter(text: textSpan, textDirection: TextDirection.ltr);
     textPainter.layout();
 
     double x = center.dx + radius * math.cos(angle) - (textPainter.width / 2);
