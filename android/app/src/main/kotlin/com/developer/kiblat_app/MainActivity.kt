@@ -1,4 +1,4 @@
-package com.example.kiblat_app
+package com.developer.kiblat_app
 
 import io.flutter.embedding.android.FlutterActivity
 
